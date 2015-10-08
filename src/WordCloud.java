@@ -11,6 +11,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -35,8 +37,8 @@ public class WordCloud {
     private static final String END_OF_FILE = "\\z";
     private static final String WHITESPACE = "\\s";
 
-    // set of common words to ignore when displaying word cloud
-    private Set<String> myCommonWords;
+    // how to decide what words to ignore when displaying word cloud
+    private Predicate<String> mySelector;
     // words and the number of times each appears in the file
     private List<Entry<String, Integer>> myTagWords;
 
@@ -44,18 +46,17 @@ public class WordCloud {
     /**
      * Constructs an empty WordCloud.
      */
-    public WordCloud (Scanner ignoreWords) {
+    public WordCloud (Predicate<String> select) {
         // this value should never be null
         myTagWords = new ArrayList<>();
-        // create list of words that should not be included in final word counts
-        myCommonWords = new HashSet<>(readWords(ignoreWords));
+        mySelector = select;
     }
 
     /**
      * Create a word cloud from the given input.
      */
     public void makeCloud (Scanner input, int numWordsToKeep, int groupSize) {
-        myTagWords = topWords(countWords(input), numWordsToKeep, groupSize);
+        countWords(input).topWords(numWordsToKeep, groupSize);
     }
 
     /**
@@ -74,36 +75,37 @@ public class WordCloud {
     // Reads given text file and counts non-common words it contains.
     // Each word read is converted to lower case with leading and trailing punctuation removed
     // before it is counted.
-    private List<Entry<String, Integer>> countWords (Scanner input) {
+    private WordCloud countWords (Scanner input) {
         final Map<String, Integer> wordCounts = new HashMap<>();
-        readWords(input).forEach(w -> {
-            if (isTaggable(w)) {
-                wordCounts.put(w, wordCounts.getOrDefault(w, 0) + 1);
-            }
-        });
-        return new ArrayList<Entry<String, Integer>>(wordCounts.entrySet());
+        readWords(input, WordCloud::sanitize, mySelector).stream().forEach(w -> {
+                     wordCounts.put(w, wordCounts.getOrDefault(w, 0) + 1);
+                 });
+        myTagWords.addAll(wordCounts.entrySet());
+        return this;
     }
 
     // Sorts words alphabetically, keeping only those that appeared most often.
-    private List<Entry<String, Integer>> topWords (List<Entry<String, Integer>> tagWords,
-                                                   int numWordsToKeep,
-                                                   int groupSize) {
+    private WordCloud topWords (int numWordsToKeep, int groupSize) {
         // sort from most frequent to least
-        tagWords.sort(Comparator.comparing(Entry<String, Integer>::getValue).reversed());
+        myTagWords.sort(Comparator.comparing(Entry<String, Integer>::getValue).reversed());
         // keep only the top ones
-        tagWords.subList(numWordsToKeep, tagWords.size()).clear();
+        myTagWords.subList(numWordsToKeep, myTagWords.size()).clear();
         // convert frequencies into groups (Entry is immutable, so create a new one)
-        tagWords = tagWords.stream()
-                           .map(w -> new SimpleEntry<String, Integer>(w.getKey(), w.getValue() / groupSize))
-                           .collect(Collectors.toList());
+        myTagWords = myTagWords.stream()
+                               .map(w -> new SimpleEntry<String, Integer>(w.getKey(), w.getValue() / groupSize))
+                               .collect(Collectors.toList());
         // sort alphabetically
-        tagWords.sort(Comparator.comparing(Entry<String, Integer>::getKey));
-        return tagWords;
+        myTagWords.sort(Comparator.comparing(Entry<String, Integer>::getKey));
+        return this;
     }
 
-    // Return true if the given word should be tagged
-    private boolean isTaggable (String word) {
-        return word.length() > 0 && !myCommonWords.contains(word);
+    // Returns a function that returns true if the given word should be tagged
+    private static Predicate<String> isTaggable (Scanner ignoreWords) {
+        // set of common words to ignore when displaying word cloud
+        final Set<String> commonWords = new HashSet<>(readWords(ignoreWords,
+                                                                WordCloud::sanitize,
+                                                                x -> true));
+        return (w -> w.length() > 0 && !commonWords.contains(w));
     }
 
     // Remove the leading and trailing punctuation from the given word
@@ -114,9 +116,12 @@ public class WordCloud {
     }
 
     // Remove the leading and trailing punctuation from the given word
-    private List<String> readWords (Scanner input) {
+    private static List<String> readWords (Scanner input,
+                                           UnaryOperator<String> xform,
+                                           Predicate<String> select) {
         return Arrays.stream(input.useDelimiter(END_OF_FILE).next().split(WHITESPACE))
-                     .map(WordCloud::sanitize)
+                     .map(xform)
+                     .filter(select)
                      .collect(Collectors.toList());
     }
 
@@ -127,9 +132,8 @@ public class WordCloud {
         }
         else {
             try {
-                WordCloud cloud = new WordCloud(
-                                     new Scanner(WordCloud.class.getResourceAsStream(DEFAULT_IGNORE_FILE)));
-                cloud.makeCloud(new Scanner(new File(args[1])), 
+                WordCloud cloud = new WordCloud(isTaggable(new Scanner(WordCloud.class.getResourceAsStream(DEFAULT_IGNORE_FILE))));
+                cloud.makeCloud(new Scanner(new File(args[1])),
                                 Integer.parseInt(args[0]),
                                 DEFAULT_NUM_GROUPS);
                 System.out.println(cloud);
