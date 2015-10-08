@@ -115,10 +115,9 @@ public class WordCloud {
 
     // Remove the leading and trailing punctuation from the given word
     private List<String> readWords (Scanner input) {
-        List<String> words = Arrays.asList(input.useDelimiter(END_OF_FILE).next().split(WHITESPACE));
-        return words.stream()
-                    .map(WordCloud::sanitize)
-                    .collect(Collectors.toList());
+        return Arrays.stream(input.useDelimiter(END_OF_FILE).next().split(WHITESPACE))
+                     .map(WordCloud::sanitize)
+                     .collect(Collectors.toList());
     }
 
 
